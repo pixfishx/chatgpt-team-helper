@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { formatProxyForLog, loadProxyList, parseProxyConfig, pickProxyByHash } from '../utils/proxy.js'
+import { buildChatgptAdminHeaders, getAccountChatgptId, getAccountToken } from './account-client-profile.js'
 
-const OAI_CLIENT_VERSION = 'prod-eddc2f6ff65fee2d0d6439e379eab94fe3047f72'
 const DEFAULT_TIMEOUT_MS = 60000
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_RETRY_BASE_DELAY_MS = 800
@@ -101,7 +101,8 @@ export async function inviteUserToChatGPTTeam(email, accountData, options = {}) 
   const baseDelayMs = clampDelay(toInt(options.baseDelayMs, toInt(process.env.CHATGPT_INVITE_RETRY_BASE_DELAY_MS, DEFAULT_RETRY_BASE_DELAY_MS)), { min: 0 })
   const maxDelayMs = clampDelay(toInt(options.maxDelayMs, toInt(process.env.CHATGPT_INVITE_RETRY_MAX_DELAY_MS, DEFAULT_RETRY_MAX_DELAY_MS)), { min: baseDelayMs })
 
-  const { token, chatgpt_account_id: chatgptAccountId, oai_device_id: oaiDeviceId } = accountData || {}
+  const token = getAccountToken(accountData)
+  const chatgptAccountId = getAccountChatgptId(accountData)
 
   const proxyOverrides = options.proxy ? [buildProxyConfigFromUrl(options.proxy)].filter(Boolean) : []
   const proxies = proxyOverrides.length ? proxyOverrides : loadInviteProxyList()
@@ -120,19 +121,11 @@ export async function inviteUserToChatGPTTeam(email, accountData, options = {}) 
 
   const url = `https://chatgpt.com/backend-api/accounts/${chatgptAccountId}/invites`
 
-  const headers = {
-    'accept': '*/*',
-    'accept-language': 'zh-CN,zh;q=0.9',
-    'authorization': `Bearer ${token}`,
-    'chatgpt-account-id': chatgptAccountId,
-    'content-type': 'application/json',
-    'oai-client-version': OAI_CLIENT_VERSION,
-    'oai-device-id': oaiDeviceId || '',
-    'oai-language': 'zh-CN',
-    'origin': 'https://chatgpt.com',
-    'referer': 'https://chatgpt.com/admin/members',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
-  }
+  const headers = buildChatgptAdminHeaders(accountData, {
+    action: 'inviteUser',
+    contentType: 'application/json',
+    origin: 'https://chatgpt.com'
+  })
 
   const data = {
     email_addresses: [normalizedEmail],

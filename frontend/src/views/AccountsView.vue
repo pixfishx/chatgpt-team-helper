@@ -126,7 +126,6 @@ const formData = ref<CreateGptAccountDto>({
   isBanned: false,
   isOpen: true,
   chatgptAccountId: '',
-  oaiDeviceId: '',
   expireAt: '',
   remark: ''
 })
@@ -952,7 +951,6 @@ const openEditDialog = (account: GptAccount) => {
 	    isBanned: Boolean(account.isBanned),
 	    isOpen: Boolean(account.isOpen),
 	    chatgptAccountId: account.chatgptAccountId || '',
-	    oaiDeviceId: account.oaiDeviceId || '',
 	    expireAt: toDatetimeLocal(account.expireAt || ''),
 	    remark: account.remark || ''
 	  }
@@ -962,7 +960,7 @@ const openEditDialog = (account: GptAccount) => {
 	const closeDialog = () => {
 	  showDialog.value = false
 	  editingAccount.value = null
-	  formData.value = { email: '', token: '', refreshToken: '', userCount: 0, isBanned: false, isOpen: true, chatgptAccountId: '', oaiDeviceId: '', expireAt: '', remark: '' }
+	  formData.value = { email: '', token: '', refreshToken: '', userCount: 0, isBanned: false, isOpen: true, chatgptAccountId: '', expireAt: '', remark: '' }
 	  checkedChatgptAccounts.value = []
 	  checkAccessTokenError.value = ''
 	  checkingAccessToken.value = false
@@ -978,7 +976,6 @@ const handleSubmit = async () => {
       token: formData.value.token.trim(),
       refreshToken: formData.value.refreshToken?.trim() || '',
       chatgptAccountId: formData.value.chatgptAccountId?.trim() || '',
-      oaiDeviceId: formData.value.oaiDeviceId?.trim() || '',
       expireAt: fromDatetimeLocal(formData.value.expireAt?.trim() || ''),
       remark: formData.value.remark?.trim() || '',
     }
@@ -1851,37 +1848,27 @@ const handleInviteSubmit = async () => {
                 </div>
               </div>
 
-		              <div class="grid grid-cols-2 gap-4">
-		                 <div class="space-y-2">
-		                    <Label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">ChatGPT ID</Label>
-                        <div class="flex items-center gap-2">
-                          <Input
-                            id="chatgpt-account-id-input"
-                            v-model="formData.chatgptAccountId"
-                            required
-                            placeholder="必填"
-                            :list="checkedChatgptAccounts.length ? 'chatgpt-account-id-options' : undefined"
-                            class="h-11 flex-1 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all font-mono text-sm"
-                          />
-                        </div>
-                        <datalist v-if="checkedChatgptAccounts.length" id="chatgpt-account-id-options">
-                          <option
-                            v-for="acc in checkedChatgptAccounts"
-                            :key="acc.accountId"
-                            :value="acc.accountId"
-                          >
-                            {{ acc.name }}{{ acc.expiresAt ? ` (到期 ${acc.expiresAt})` : '' }}
-                          </option>
-                        </datalist>
-		                 </div>
-		                 <div class="space-y-2">
-		                    <Label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">设备 ID</Label>
-		                    <Input
-		                      v-model="formData.oaiDeviceId"
-		                      placeholder="可选"
-		                      class="h-11 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all font-mono text-sm"
-		                    />
-		                 </div>
+		              <div class="space-y-2">
+		                <Label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">ChatGPT ID</Label>
+                    <div class="flex items-center gap-2">
+                      <Input
+                        id="chatgpt-account-id-input"
+                        v-model="formData.chatgptAccountId"
+                        required
+                        placeholder="必填"
+                        :list="checkedChatgptAccounts.length ? 'chatgpt-account-id-options' : undefined"
+                        class="h-11 flex-1 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all font-mono text-sm"
+                      />
+                    </div>
+                    <datalist v-if="checkedChatgptAccounts.length" id="chatgpt-account-id-options">
+                      <option
+                        v-for="acc in checkedChatgptAccounts"
+                        :key="acc.accountId"
+                        :value="acc.accountId"
+                      >
+                        {{ acc.name }}{{ acc.expiresAt ? ` (到期 ${acc.expiresAt})` : '' }}
+                      </option>
+                    </datalist>
 		              </div>
 
 	                  <div class="grid grid-cols-1 gap-4">

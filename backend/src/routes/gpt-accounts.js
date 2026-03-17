@@ -5,6 +5,7 @@ import { authenticateToken } from '../middleware/auth.js'
 import { apiKeyAuth } from '../middleware/api-key-auth.js'
 import { requireMenu } from '../middleware/rbac.js'
 import { syncAccountUserCount, syncAccountInviteCount, fetchOpenAiAccountInfo, fetchAccountUsersList, AccountSyncError, deleteAccountUser, inviteAccountUser, deleteAccountInvite } from '../services/account-sync.js'
+import { generateAccountClientProfile } from '../services/account-client-profile.js'
 
 const router = express.Router()
 const OPENAI_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -760,10 +761,26 @@ router.post('/', async (req, res) => {
 
     // 设置默认人数为1而不是0
     const finalUserCount = userCount !== undefined ? userCount : 1
+    const generatedClientProfile = generateAccountClientProfile(normalizedEmail, normalizedOaiDeviceId)
 
     db.run(
-      `INSERT INTO gpt_accounts (email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at, is_open, is_banned, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))`,
-      [normalizedEmail, token, refreshToken || null, finalUserCount, normalizedChatgptAccountId, normalizedOaiDeviceId || null, normalizedExpireAt, isOpenValue, isBannedValue, normalizedRemark]
+      `INSERT INTO gpt_accounts (email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at, is_open, is_banned, remark, client_profile_key, client_user_agent, client_accept_language, client_oai_language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))`,
+      [
+        normalizedEmail,
+        token,
+        refreshToken || null,
+        finalUserCount,
+        normalizedChatgptAccountId,
+        generatedClientProfile.oaiDeviceId,
+        normalizedExpireAt,
+        isOpenValue,
+        isBannedValue,
+        normalizedRemark,
+        generatedClientProfile.clientProfileKey,
+        generatedClientProfile.clientUserAgent,
+        generatedClientProfile.clientAcceptLanguage,
+        generatedClientProfile.clientOaiLanguage
+      ]
     )
 
 		    // 获取新创建账号的ID
@@ -871,6 +888,8 @@ router.put('/:id', async (req, res) => {
 
     const normalizedChatgptAccountId = String(chatgptAccountId ?? '').trim()
     const normalizedOaiDeviceId = String(oaiDeviceId ?? '').trim()
+    const hasOaiDeviceId = Object.prototype.hasOwnProperty.call(body, 'oaiDeviceId') || Object.prototype.hasOwnProperty.call(body, 'oai_device_id')
+    const shouldUpdateOaiDeviceId = hasOaiDeviceId && Boolean(normalizedOaiDeviceId)
     const hasExpireAt = Object.prototype.hasOwnProperty.call(body, 'expireAt')
     const normalizedExpireAt = hasExpireAt ? normalizeExpireAt(expireAt) : null
     const hasRemark = Object.prototype.hasOwnProperty.call(body, 'remark')
@@ -916,7 +935,7 @@ router.put('/:id', async (req, res) => {
            refresh_token = ?,
            user_count = ?,
            chatgpt_account_id = ?,
-           oai_device_id = ?,
+           oai_device_id = CASE WHEN ? = 1 THEN ? ELSE oai_device_id END,
            expire_at = CASE WHEN ? = 1 THEN ? ELSE expire_at END,
            remark = CASE WHEN ? = 1 THEN ? ELSE remark END,
            is_banned = CASE WHEN ? = 1 THEN ? ELSE is_banned END,
@@ -930,6 +949,7 @@ router.put('/:id', async (req, res) => {
         refreshToken || null,
         userCount || 0,
         normalizedChatgptAccountId,
+        shouldUpdateOaiDeviceId ? 1 : 0,
         normalizedOaiDeviceId || null,
         hasExpireAt ? 1 : 0,
         normalizedExpireAt,

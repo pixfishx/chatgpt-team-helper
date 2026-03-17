@@ -245,7 +245,8 @@ function selectAccountForCode(db, accountEmail) {
   if (accountEmail) {
     const result = db.exec(
       `
-      SELECT id, email, token, user_count, chatgpt_account_id, oai_device_id
+      SELECT id, email, token, user_count, chatgpt_account_id, oai_device_id,
+             client_profile_key, client_user_agent, client_accept_language, client_oai_language
       FROM gpt_accounts
       WHERE email = ?
         AND COALESCE(user_count, 0) + COALESCE(invite_count, 0) < 6
@@ -254,14 +255,15 @@ function selectAccountForCode(db, accountEmail) {
       [accountEmail]
     )
     if (result.length && result[0].values.length) {
-      const [id, email, token, userCount, chatgptAccountId, oaiDeviceId] = result[0].values[0]
-      return { id, email, token, userCount: userCount || 0, chatgptAccountId, oaiDeviceId }
+      const [id, email, token, userCount, chatgptAccountId, oaiDeviceId, clientProfileKey, clientUserAgent, clientAcceptLanguage, clientOaiLanguage] = result[0].values[0]
+      return { id, email, token, userCount: userCount || 0, chatgptAccountId, oaiDeviceId, clientProfileKey, clientUserAgent, clientAcceptLanguage, clientOaiLanguage }
     }
   }
 
   const fallback = db.exec(
     `
-      SELECT id, email, token, user_count, chatgpt_account_id, oai_device_id
+      SELECT id, email, token, user_count, chatgpt_account_id, oai_device_id,
+             client_profile_key, client_user_agent, client_accept_language, client_oai_language
       FROM gpt_accounts
       WHERE COALESCE(user_count, 0) + COALESCE(invite_count, 0) < 6
       ORDER BY COALESCE(user_count, 0) + COALESCE(invite_count, 0) ASC, RANDOM()
@@ -272,8 +274,8 @@ function selectAccountForCode(db, accountEmail) {
   if (!fallback.length || !fallback[0].values.length) {
     return null
   }
-  const [id, email, token, userCount, chatgptAccountId, oaiDeviceId] = fallback[0].values[0]
-  return { id, email, token, userCount: userCount || 0, chatgptAccountId, oaiDeviceId }
+  const [id, email, token, userCount, chatgptAccountId, oaiDeviceId, clientProfileKey, clientUserAgent, clientAcceptLanguage, clientOaiLanguage] = fallback[0].values[0]
+  return { id, email, token, userCount: userCount || 0, chatgptAccountId, oaiDeviceId, clientProfileKey, clientUserAgent, clientAcceptLanguage, clientOaiLanguage }
 }
 
 async function redeemReservedCode(db, entry, code) {
@@ -352,7 +354,11 @@ async function redeemReservedCode(db, entry, code) {
     inviteResult = await inviteUserToChatGPTTeam(entry.email, {
       token: account.token,
       chatgpt_account_id: account.chatgptAccountId,
-      oai_device_id: account.oaiDeviceId
+      oai_device_id: account.oaiDeviceId,
+      client_profile_key: account.clientProfileKey,
+      client_user_agent: account.clientUserAgent,
+      client_accept_language: account.clientAcceptLanguage,
+      client_oai_language: account.clientOaiLanguage
     }, { proxyKey: account.id })
     if (!inviteResult.success) {
       console.error(`${LABEL} 邀请 ${entry.email} 时失败:`, inviteResult.error)

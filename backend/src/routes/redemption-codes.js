@@ -497,12 +497,26 @@ export async function redeemCodeInternal({
   const maxSeats = Math.max(1, Number(capacityLimit) || 5)
   const nowMs = Date.now()
   const accountCandidatesLimit = 50
+  const ACCOUNT_CANDIDATE_EXPIRE_AT_INDEX = 10
+  const toAccountCandidateRow = (row) => ([
+    row[0],
+    row[1],
+    row[2],
+    row[3],
+    row[4],
+    row[5],
+    row[6],
+    row[7],
+    row[8],
+    row[9],
+    row[10]
+  ])
   const isAccountUsable = (row) => {
     if (!row) return false
     const token = String(row[2] ?? '').trim()
     const chatgptAccountId = String(row[4] ?? '').trim()
     if (!token || !chatgptAccountId) return false
-    const expireAtMs = parseExpireAtToMs(row[6])
+    const expireAtMs = parseExpireAtToMs(row[ACCOUNT_CANDIDATE_EXPIRE_AT_INDEX])
     return expireAtMs != null && expireAtMs >= nowMs
   }
   const pickUsableAccount = (rows) => {
@@ -519,15 +533,19 @@ export async function redeemCodeInternal({
                COALESCE(user_count, 0) AS user_count,
                chatgpt_account_id,
                oai_device_id,
+               client_profile_key,
+               client_user_agent,
+               client_accept_language,
+               client_oai_language,
                expire_at,
                COALESCE(invite_count, 0) AS invite_count,
                COALESCE(is_open, 0) AS is_open,
                COALESCE(is_banned, 0) AS is_banned
         FROM gpt_accounts
-        WHERE email = ?
+        WHERE lower(email) = ?
         LIMIT 1
       `,
-      [boundAccountEmail]
+      [normalizeEmail(boundAccountEmail)]
     )
 
     const boundRow = accountResult?.[0]?.values?.[0] || null
@@ -536,18 +554,18 @@ export async function redeemCodeInternal({
     }
 
     const boundUserCount = Number(boundRow[3] || 0)
-    const boundInviteCount = Number(boundRow[7] || 0)
+    const boundInviteCount = Number(boundRow[11] || 0)
     if (boundUserCount + boundInviteCount >= maxSeats) {
       throw new RedemptionError(503, '该兑换码绑定的账号已达到人数上限，请联系管理员')
     }
 
-    const isOpen = Number(boundRow[8] || 0) === 1
-    const isBanned = Number(boundRow[9] || 0) === 1
+    const isOpen = Number(boundRow[12] || 0) === 1
+    const isBanned = Number(boundRow[13] || 0) === 1
     if (isBanned || (!isOpen && !allowNonOpenAccount)) {
       throw new RedemptionError(503, '该兑换码绑定账号不可用或已过期，请联系管理员')
     }
 
-    const candidate = [boundRow[0], boundRow[1], boundRow[2], boundRow[3], boundRow[4], boundRow[5], boundRow[6]]
+    const candidate = toAccountCandidateRow(boundRow)
     if (!isAccountUsable(candidate)) {
       throw new RedemptionError(503, '该兑换码绑定账号不可用或已过期，请联系管理员')
     }
@@ -562,6 +580,10 @@ export async function redeemCodeInternal({
                COALESCE(user_count, 0) AS user_count,
                chatgpt_account_id,
                oai_device_id,
+               client_profile_key,
+               client_user_agent,
+               client_accept_language,
+               client_oai_language,
                expire_at
         FROM gpt_accounts
         WHERE COALESCE(user_count, 0) + COALESCE(invite_count, 0) < ?
@@ -594,10 +616,18 @@ export async function redeemCodeInternal({
   const currentUserCount = account[3] || 0
   const chatgptAccountId = account[4]
   const oaiDeviceId = account[5]
+  const clientProfileKey = account[6]
+  const clientUserAgent = account[7]
+  const clientAcceptLanguage = account[8]
+  const clientOaiLanguage = account[9]
   const accountData = {
     token: accountToken,
     chatgpt_account_id: chatgptAccountId,
-    oai_device_id: oaiDeviceId
+    oai_device_id: oaiDeviceId,
+    client_profile_key: clientProfileKey,
+    client_user_agent: clientUserAgent,
+    client_accept_language: clientAcceptLanguage,
+    client_oai_language: clientOaiLanguage
   }
 
   try {
@@ -891,7 +921,8 @@ router.post('/:id/reinvite', authenticateToken, requireMenu('redemption_codes'),
 
       const accountResult = db.exec(
         `
-          SELECT id, email, token, chatgpt_account_id, oai_device_id
+          SELECT id, email, token, chatgpt_account_id, oai_device_id,
+                 client_profile_key, client_user_agent, client_accept_language, client_oai_language
           FROM gpt_accounts
           WHERE lower(email) = ?
           LIMIT 1
@@ -908,6 +939,10 @@ router.post('/:id/reinvite', authenticateToken, requireMenu('redemption_codes'),
       const token = accountRow[2]
       const chatgptAccountId = accountRow[3]
       const oaiDeviceId = accountRow[4]
+      const clientProfileKey = accountRow[5]
+      const clientUserAgent = accountRow[6]
+      const clientAcceptLanguage = accountRow[7]
+      const clientOaiLanguage = accountRow[8]
 
       if (!token || !chatgptAccountId) {
         return res.status(400).json({ error: '所属账号缺少 token 或 chatgpt_account_id，无法重新邀请' })
@@ -916,7 +951,11 @@ router.post('/:id/reinvite', authenticateToken, requireMenu('redemption_codes'),
       const inviteResult = await inviteUserToChatGPTTeam(inviteEmail, {
         token,
         chatgpt_account_id: chatgptAccountId,
-        oai_device_id: oaiDeviceId
+        oai_device_id: oaiDeviceId,
+        client_profile_key: clientProfileKey,
+        client_user_agent: clientUserAgent,
+        client_accept_language: clientAcceptLanguage,
+        client_oai_language: clientOaiLanguage
       }, { proxyKey: targetAccountId })
 
       if (!inviteResult.success) {

@@ -2,6 +2,7 @@ import express from 'express'
 import { getDatabase, saveDatabase } from '../database/init.js'
 import { apiKeyAuth } from '../middleware/api-key-auth.js'
 import { syncAccountUserCount } from '../services/account-sync.js'
+import { generateAccountClientProfile } from '../services/account-client-profile.js'
 
 const router = express.Router()
 
@@ -145,6 +146,8 @@ router.post('/', apiKeyAuth, async (req, res) => {
   try {
     const { email, token, refreshToken, chatgptAccountId, oaiDeviceId } = req.body
     const body = req.body || {}
+    const hasOaiDeviceId = Object.prototype.hasOwnProperty.call(body, 'oaiDeviceId') || Object.prototype.hasOwnProperty.call(body, 'oai_device_id')
+    const normalizedOaiDeviceId = String(oaiDeviceId ?? '').trim()
     const hasExpireAt = Object.prototype.hasOwnProperty.call(req.body || {}, 'expireAt')
     const expireAtInput = req.body?.expireAt
     const normalizedExpireAt = hasExpireAt ? normalizeExpireAt(expireAtInput) : null
@@ -209,18 +212,19 @@ router.post('/', apiKeyAuth, async (req, res) => {
 	         SET token = ?,
 	             refresh_token = ?,
 	             chatgpt_account_id = ?,
-	             oai_device_id = ?,
+	             oai_device_id = CASE WHEN ? = 1 THEN ? ELSE oai_device_id END,
 	             is_open = 1,
 	             expire_at = CASE WHEN ? = 1 THEN ? ELSE expire_at END,
 	             updated_at = DATETIME('now', 'localtime')
 	         WHERE id = ?`,
-	        [token, refreshToken || null, chatgptAccountId || null, oaiDeviceId || null, shouldUpdateExpireAt ? 1 : 0, expireAt, existingAccount.id]
+	        [token, refreshToken || null, chatgptAccountId || null, hasOaiDeviceId && normalizedOaiDeviceId ? 1 : 0, normalizedOaiDeviceId || null, shouldUpdateExpireAt ? 1 : 0, expireAt, existingAccount.id]
 	      )
 	      saveDatabase()
 
 	      // 获取更新后的账号信息
 	      const result = db.exec(`
 	        SELECT id, email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at,
+	               client_profile_key, client_user_agent, client_accept_language, client_oai_language,
 	               created_at, updated_at
 	        FROM gpt_accounts
 	        WHERE id = ?
@@ -236,9 +240,13 @@ router.post('/', apiKeyAuth, async (req, res) => {
 	        chatgptAccountId: row[5],
 	        oaiDeviceId: row[6],
 	        expireAt: row[7] || null,
+	        clientProfileKey: row[8] || null,
+	        clientUserAgent: row[9] || null,
+	        clientAcceptLanguage: row[10] || null,
+	        clientOaiLanguage: row[11] || null,
 	        isDemoted: false,
-	        createdAt: row[8],
-	        updatedAt: row[9]
+	        createdAt: row[12],
+	        updatedAt: row[13]
 	      }
 
       const { account: syncedAccount, syncResult, removedUsers } = await syncAccountAndCleanup(account)
@@ -252,17 +260,31 @@ router.post('/', apiKeyAuth, async (req, res) => {
         removedUsers
       })
     } else {
+	      const generatedClientProfile = generateAccountClientProfile(normalizedEmail, normalizedOaiDeviceId)
 	      // 创建新账号，默认人数设置为1而不是0
 	      db.run(
 	        `INSERT INTO gpt_accounts
-	         (email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at, is_open, created_at, updated_at)
-	         VALUES (?, ?, ?, ?, ?, ?, ?, 1, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))`,
-	        [normalizedEmail, token, refreshToken || null, 1, chatgptAccountId || null, oaiDeviceId || null, expireAt]
+	         (email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at, is_open, client_profile_key, client_user_agent, client_accept_language, client_oai_language, created_at, updated_at)
+	         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))`,
+	        [
+	          normalizedEmail,
+	          token,
+	          refreshToken || null,
+	          1,
+	          chatgptAccountId || null,
+	          generatedClientProfile.oaiDeviceId,
+	          expireAt,
+	          generatedClientProfile.clientProfileKey,
+	          generatedClientProfile.clientUserAgent,
+	          generatedClientProfile.clientAcceptLanguage,
+	          generatedClientProfile.clientOaiLanguage
+	        ]
 	      )
 
 	      // 获取新创建的账号
 	      const result = db.exec(`
 	        SELECT id, email, token, refresh_token, user_count, chatgpt_account_id, oai_device_id, expire_at,
+	               client_profile_key, client_user_agent, client_accept_language, client_oai_language,
 	               created_at, updated_at
 	        FROM gpt_accounts
 	        WHERE id = last_insert_rowid()
@@ -278,9 +300,13 @@ router.post('/', apiKeyAuth, async (req, res) => {
 	        chatgptAccountId: row[5],
 	        oaiDeviceId: row[6],
 	        expireAt: row[7] || null,
+	        clientProfileKey: row[8] || null,
+	        clientUserAgent: row[9] || null,
+	        clientAcceptLanguage: row[10] || null,
+	        clientOaiLanguage: row[11] || null,
 	        isDemoted: false,
-	        createdAt: row[8],
-	        updatedAt: row[9]
+	        createdAt: row[12],
+	        updatedAt: row[13]
 	      }
 
       // 自动生成兑换码，数量为可用名额
