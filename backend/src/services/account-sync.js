@@ -2,6 +2,7 @@ import { getDatabase, saveDatabase } from '../database/init.js'
 import axios from 'axios'
 import { buildAxiosProxyOptions, loadDefaultProxyList, normalizeProxyConfig, pickProxyByHash } from '../utils/proxy.js'
 import { buildChatgptAdminHeaders, getAccountChatgptId, CHATGPT_OAI_CLIENT_VERSION } from './account-client-profile.js'
+import { invalidateAccountRecoveryAccessCache } from '../utils/account-recovery-access-cache.js'
 
 export class AccountSyncError extends Error {
   constructor(message, status = 500) {
@@ -252,6 +253,7 @@ const throwChatgptApiStatusError = async ({ status, errorText, logContext, label
               [accountId]
             )
             await saveDatabase()
+            invalidateAccountRecoveryAccessCache(accountId)
             console.warn('[AccountSync] upstream account_deactivated; auto-banned', { accountId })
           } catch (error) {
             console.error('[AccountSync] auto-ban failed', {

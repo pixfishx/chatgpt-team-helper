@@ -6,6 +6,7 @@ import { apiKeyAuth } from '../middleware/api-key-auth.js'
 import { requireMenu } from '../middleware/rbac.js'
 import { syncAccountUserCount, syncAccountInviteCount, fetchOpenAiAccountInfo, fetchAccountUsersList, AccountSyncError, deleteAccountUser, inviteAccountUser, deleteAccountInvite } from '../services/account-sync.js'
 import { generateAccountClientProfile } from '../services/account-client-profile.js'
+import { invalidateAccountRecoveryAccessCache, invalidateAccountRecoveryAccessCaches } from '../utils/account-recovery-access-cache.js'
 
 const router = express.Router()
 const OPENAI_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -412,6 +413,7 @@ router.post('/ban', apiKeyAuth, async (req, res) => {
         emails
       )
       saveDatabase()
+      invalidateAccountRecoveryAccessCaches(matched.map(item => item.id))
     }
 
     return res.json({
@@ -1095,6 +1097,7 @@ router.patch('/:id/ban', async (req, res) => {
       [accountId]
     )
     saveDatabase()
+    invalidateAccountRecoveryAccessCache(accountId)
 
     const result = db.exec(
       `

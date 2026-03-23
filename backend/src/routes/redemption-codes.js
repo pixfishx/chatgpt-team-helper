@@ -32,6 +32,7 @@ import { requireFeatureEnabled } from '../middleware/feature-flags.js'
 import { getChannels, normalizeChannelKey } from '../utils/channels.js'
 import { buildAccountRecoveryEligibleCodeSql, resolveOrderDeadlineMs, selectRecoveryCode } from '../services/account-recovery.js'
 import { getAccountRecoverySettings } from '../utils/account-recovery-settings.js'
+import { getAccountRecoveryAccessCache, setAccountRecoveryAccessCache } from '../utils/account-recovery-access-cache.js'
 import { checkViaUpstreamProvider, redeemViaUpstreamProvider } from '../services/upstream-provider.js'
 
 const router = express.Router()
@@ -58,30 +59,6 @@ const ACCOUNT_RECOVERY_REDEEM_MAX_ATTEMPTS = Math.min(
   10,
   Math.max(1, toInt(process.env.ACCOUNT_RECOVERY_REDEEM_MAX_ATTEMPTS, 3))
 )
-const ACCOUNT_RECOVERY_ACCESS_CACHE_TTL_MS = Math.max(
-  0,
-  toInt(process.env.ACCOUNT_RECOVERY_ACCESS_CACHE_TTL_MS, 60_000)
-)
-const ACCOUNT_RECOVERY_ACCESS_CACHE_MAX_SIZE = 2000
-const accountRecoveryAccessCache = new Map()
-const getAccountRecoveryAccessCache = (accountId) => {
-  if (!accountId || ACCOUNT_RECOVERY_ACCESS_CACHE_TTL_MS <= 0) return null
-  const entry = accountRecoveryAccessCache.get(accountId)
-  if (!entry) return null
-  if (Date.now() - entry.checkedAt > ACCOUNT_RECOVERY_ACCESS_CACHE_TTL_MS) {
-    accountRecoveryAccessCache.delete(accountId)
-    return null
-  }
-  return entry
-}
-const setAccountRecoveryAccessCache = (accountId, entry) => {
-  if (!accountId || ACCOUNT_RECOVERY_ACCESS_CACHE_TTL_MS <= 0 || !entry) return
-  if (accountRecoveryAccessCache.size > ACCOUNT_RECOVERY_ACCESS_CACHE_MAX_SIZE) {
-    const firstKey = accountRecoveryAccessCache.keys().next().value
-    if (firstKey != null) accountRecoveryAccessCache.delete(firstKey)
-  }
-  accountRecoveryAccessCache.set(accountId, { ...entry, checkedAt: Date.now() })
-}
 const ORDER_TYPE_WARRANTY = 'warranty'
 const ORDER_TYPE_NO_WARRANTY = 'no_warranty'
 const ORDER_TYPE_ANTI_BAN = 'anti_ban'
@@ -2174,6 +2151,8 @@ router.post('/recover', async (req, res) => {
           || targetCandidate.currentAccountRecordEmail
           || targetCandidate.currentAccountEmail
 
+        const hasCurrentRecoverySignal = Boolean(processedReason)
+
         if (completedStatus && completedAccountForCheck) {
           const accountStateResult = db.exec(
             `
@@ -2191,7 +2170,7 @@ router.post('/recover', async (req, res) => {
           const currentUserCount = accountStateRow ? Number(accountStateRow[1] || 0) : null
           const currentInviteCount = accountStateRow ? Number(accountStateRow[2] || 0) : null
 
-          if (completedStatus === 'skipped') {
+          if (!hasCurrentRecoverySignal && completedStatus === 'skipped' && currentIsBanned === false) {
             return res.json({
               message: '当前工作空间仍可访问，无需补录',
               data: {
@@ -2207,7 +2186,7 @@ router.post('/recover', async (req, res) => {
             })
           }
 
-          if (completedStatus === 'success' && currentIsBanned === false) {
+          if (!hasCurrentRecoverySignal && completedStatus === 'success' && currentIsBanned === false) {
             return res.json({
               message: '补录已完成，请检查邮箱邀请',
               data: {
