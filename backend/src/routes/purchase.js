@@ -2493,8 +2493,10 @@ router.post('/admin/orders/:orderNo/refund', async (req, res) => {
             refund
           }
         }
-        releaseReservedCodesByOrderNo(db, orderNo)
       }
+
+      // 退款后应释放未实际使用的预留码，避免外部卡密或自动开通失败订单被永久锁死。
+      releaseReservedCodesByOrderNo(db, orderNo)
 
       db.run(
         `

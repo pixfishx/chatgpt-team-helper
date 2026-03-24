@@ -458,6 +458,26 @@ const updateExternalSupplierCheckResult = (db, codeId, values) => {
   )
 }
 
+const releaseUnusedReservedCode = (db, codeId) => {
+  if (!db || !codeId) return 0
+
+  db.run(
+    `
+      UPDATE redemption_codes
+      SET reserved_for_order_no = NULL,
+          reserved_for_order_email = NULL,
+          reserved_at = NULL,
+          updated_at = DATETIME('now', 'localtime')
+      WHERE id = ?
+        AND is_redeemed = 0
+        AND COALESCE(is_downstream_sold, 0) = 0
+    `,
+    [codeId]
+  )
+
+  return typeof db.getRowsModified === 'function' ? db.getRowsModified() : 0
+}
+
 const resolveSupplierStatusFromCheckResult = (codeRecord, providerResult) => {
   const checkStatus = String(providerResult?.status || '').trim().toLowerCase()
   if (checkStatus === 'available') {
@@ -709,6 +729,7 @@ export async function redeemCodeInternal({
   }
 
   if (reservedForOrderNo && !skipReservedOrderValidation) {
+    let releasedRefundedReservation = false
     const orderResult = db.exec(
       `
         SELECT status, email, refunded_at, order_type
@@ -730,21 +751,33 @@ export async function redeemCodeInternal({
       }
 
       if (refundedAt || orderStatus === 'refunded') {
-        throw new RedemptionError(403, '该订单已退款，兑换码已失效')
+        const released = releaseUnusedReservedCode(db, codeId)
+        if (released > 0) {
+          saveDatabase()
+          releasedRefundedReservation = true
+          console.info('[Redemption] released refunded purchase order reservation', {
+            codeId,
+            code: codeRecord.code,
+            orderNo: reservedForOrderNo
+          })
+        } else {
+          throw new RedemptionError(403, '该订单已退款，兑换码已失效')
+        }
       }
 
-      if (orderStatus !== 'paid') {
+      if (!releasedRefundedReservation && orderStatus !== 'paid') {
         throw new RedemptionError(403, '该兑换码对应订单未完成支付')
       }
 
-      if (reservedForOrderEmail && reservedForOrderEmail !== normalizeEmail(normalizedEmail)) {
+      if (!releasedRefundedReservation && reservedForOrderEmail && reservedForOrderEmail !== normalizeEmail(normalizedEmail)) {
         throw new RedemptionError(403, '该兑换码已绑定购买邮箱，请使用下单邮箱兑换')
       }
 
-      if (orderEmail && orderEmail !== normalizeEmail(normalizedEmail)) {
+      if (!releasedRefundedReservation && orderEmail && orderEmail !== normalizeEmail(normalizedEmail)) {
         throw new RedemptionError(403, '该兑换码已绑定购买邮箱，请使用下单邮箱兑换')
       }
     } else {
+      let releasedRefundedReservation = false
       const creditOrderResult = db.exec(
         `
           SELECT status, paid_at, refunded_at, scene
@@ -769,14 +802,25 @@ export async function redeemCodeInternal({
       }
 
       if (refundedAt || creditStatus === 'refunded') {
-        throw new RedemptionError(403, '该订单已退款，兑换码已失效')
+        const released = releaseUnusedReservedCode(db, codeId)
+        if (released > 0) {
+          saveDatabase()
+          releasedRefundedReservation = true
+          console.info('[Redemption] released refunded credit order reservation', {
+            codeId,
+            code: codeRecord.code,
+            orderNo: reservedForOrderNo
+          })
+        } else {
+          throw new RedemptionError(403, '该订单已退款，兑换码已失效')
+        }
       }
 
-      if (creditStatus !== 'paid' && !paidAt) {
+      if (!releasedRefundedReservation && creditStatus !== 'paid' && !paidAt) {
         throw new RedemptionError(403, '该兑换码对应订单未完成支付')
       }
 
-      if (reservedForOrderEmail && reservedForOrderEmail !== normalizeEmail(normalizedEmail)) {
+      if (!releasedRefundedReservation && reservedForOrderEmail && reservedForOrderEmail !== normalizeEmail(normalizedEmail)) {
         throw new RedemptionError(403, '该兑换码已绑定购买邮箱，请使用下单邮箱兑换')
       }
     }
